@@ -1,0 +1,12 @@
+{
+  "name": "generic",
+  "label": "Genel (varsayılan)",
+  "description": "Çoğu DPI'a karşı güvenli varsayılan: ClientHello'yu SNI ortasından TLS record olarak böler.",
+  "strategy": {
+    "type": "tlsrec",
+    "splits": [
+      { "mode": "sni-mid", "offset": 0 }
+    ]
+  },
+  "doh": "https://1.1.1.1/dns-query"
+}

@@ -1,0 +1,13 @@
+{
+  "name": "turktelekom",
+  "label": "Türk Telekom / TTNET",
+  "description": "TT omurgası için agresif çoklu TLS-record bölme (SNI başı + ortası).",
+  "strategy": {
+    "type": "tlsrec",
+    "splits": [
+      { "mode": "sni-start", "offset": 1 },
+      { "mode": "sni-mid", "offset": 0 }
+    ]
+  },
+  "doh": "https://1.1.1.1/dns-query"
+}

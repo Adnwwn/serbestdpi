@@ -1,0 +1,12 @@
+{
+  "name": "turknet",
+  "label": "TurkNet",
+  "description": "SNI başından TCP segment bölme.",
+  "strategy": {
+    "type": "split",
+    "splits": [
+      { "mode": "sni-start", "offset": 2 }
+    ]
+  },
+  "doh": "https://1.1.1.1/dns-query"
+}

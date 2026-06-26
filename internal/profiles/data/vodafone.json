@@ -1,0 +1,12 @@
+{
+  "name": "vodafone",
+  "label": "Vodafone Türkiye",
+  "description": "SNI ortasından TLS-record bölme; alternatif DoH (Google) ile DNS engeli aşma.",
+  "strategy": {
+    "type": "tlsrec",
+    "splits": [
+      { "mode": "sni-mid", "offset": 0 }
+    ]
+  },
+  "doh": "https://8.8.8.8/resolve"
+}

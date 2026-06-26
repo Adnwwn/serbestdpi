@@ -1,0 +1,12 @@
+{
+  "name": "superonline",
+  "label": "Turkcell Superonline",
+  "description": "TCP segment bölme: ClientHello'yu SNI ortasından ayrı segmentlere böler.",
+  "strategy": {
+    "type": "split",
+    "splits": [
+      { "mode": "sni-mid", "offset": 0 }
+    ]
+  },
+  "doh": "https://1.1.1.1/dns-query"
+}
