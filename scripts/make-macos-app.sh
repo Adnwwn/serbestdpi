@@ -9,7 +9,7 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS"
 
 echo "GUI derleniyor..."
-CGO_ENABLED=1 go build -o "$APP/Contents/MacOS/serbestdpi-gui" ./cmd/serbestdpi-gui
+CGO_ENABLED=1 go build -trimpath -ldflags="-s -w" -o "$APP/Contents/MacOS/serbestdpi-gui" ./cmd/serbestdpi-gui
 
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>

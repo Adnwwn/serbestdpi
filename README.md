@@ -31,7 +31,9 @@ SerbestDPI iki şeyi birden yapar:
 dosyayı indir.
 
 **Windows (.exe)**
-1. `serbestdpi-windows-amd64.exe` indir.
+1. İşlemcine göre indir: çoğu bilgisayar için **`serbestdpi-windows-amd64.exe`**
+   (Intel/AMD 64-bit); ARM tabanlı Windows (Surface Pro X, Snapdragon) için
+   `serbestdpi-windows-arm64.exe`; çok eski 32-bit sistemler için `serbestdpi-windows-386.exe`.
 2. Komut isteminde (cmd / PowerShell) çalıştır:
    ```
    serbestdpi-windows-amd64.exe run --profile turktelekom
@@ -52,7 +54,8 @@ dosyayı indir.
    `chmod +x serbestdpi-darwin-* && ./serbestdpi-darwin-arm64 run --profile turktelekom`.
 
 **Linux**
-1. Mimarine göre `serbestdpi-linux-amd64` veya `serbestdpi-linux-arm64` indir.
+1. Mimarine göre indir: `serbestdpi-linux-amd64` (PC/sunucu), `serbestdpi-linux-arm64`
+   (64-bit ARM) veya `serbestdpi-linux-arm` (32-bit ARM / eski Raspberry Pi).
 2. ```bash
    chmod +x serbestdpi-linux-amd64
    ./serbestdpi-linux-amd64 run --profile turktelekom
