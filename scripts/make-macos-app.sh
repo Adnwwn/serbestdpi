@@ -30,5 +30,11 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 </plist>
 PLIST
 
+# Bundle'ı ad-hoc imzala. Bu olmadan Apple Silicon'da .app çift tıklamayla
+# açılmaz ("code has no resources but signature indicates they must be present").
+echo "İmzalanıyor (ad-hoc)..."
+codesign --force --sign - --identifier org.serbestdpi.gui "$APP"
+codesign --verify --verbose "$APP" 2>&1 | head -1
+
 echo "Oluşturuldu: $APP"
 echo "Çalıştır:   open $APP"
