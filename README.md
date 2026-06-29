@@ -90,6 +90,56 @@ go build -o bin/serbestdpi-gui ./cmd/serbestdpi-gui  # menü çubuğu GUI (cgo g
 
 Proxy `127.0.0.1:1080` adresinde hem **SOCKS5** hem **HTTP CONNECT** olarak dinler.
 
+> ℹ️ Proxy modu yalnızca **proxy'yi dinleyen** uygulamalara (tarayıcılar) yardım eder.
+> Discord/Spotify/oyunlar gibi sistem proxy ayarını yok sayan uygulamalar için aşağıdaki
+> **TUN modunu** kullan.
+
+### TUN (VPN) modu — tüm uygulamalar
+
+Proxy tabanlı yaklaşımın doğal sınırı: yalnızca proxy'den geçen trafiğe desync uygulanır.
+Birçok native uygulama (ör. **Discord** masaüstü) sistem proxy'sini hiç dinlemez, bu yüzden
+proxy modunda engelli kalır. TUN modu sanal bir ağ arabirimi (utun) açar ve **tüm**
+uygulamaların trafiğini yakalayıp desync motorundan geçirir — tıpkı bir VPN gibi.
+
+**Menü çubuğu uygulaması (macOS/Windows):** ⚡ simgesi → **"TUN modu — TÜM uygulamalar"**.
+Tıklayınca yönetici onayı çıkar (macOS şifre / Windows UAC, bir kez); tünel arka planda
+yönetici olarak çalışır. Kapatmak için aynı satıra tekrar tıkla (onay sormaz).
+
+**Komut satırı (macOS/Linux):**
+
+```bash
+sudo ./bin/serbestdpi tun --profile turktelekom
+# --iface en0   : fiziksel çıkış arabirimini elle ver (boşsa otomatik)
+# --doh url     : DoH sunucusu (boşsa profilinki)
+```
+
+**Komut satırı (Windows):** `scripts\windows-tun-baslat.bat` çift tıkla (kendini UAC ile
+yükseltir) ya da yönetici PowerShell/CMD'de:
+
+```bat
+bin\serbestdpi.exe tun --profile turktelekom
+```
+
+> **Windows için Wintun gerekir.** [wintun.net](https://www.wintun.net) adresinden indirip
+> mimarine uygun `wintun.dll` dosyasını (çoğu PC için `bin\amd64\wintun.dll`) `serbestdpi.exe`
+> ile **aynı klasöre** `wintun.dll` olarak koy. TUN yalnızca **amd64/arm64**'te çalışır (386 değil).
+
+- Tüm TCP akışlarına SNI parçalama uygulanır; **DNS sorguları (UDP:53) DoH'a** yönlendirilir
+  (DNS tampering bypass); diğer UDP (QUIC, sesli görüşme) fiziksel arabirimden rölelenir.
+- **Yönetici (root/admin) yetkisi gerekir.** TUN: **macOS/Linux/Windows (amd64/arm64)**.
+- Çıkışta `Ctrl+C`; rotalar + DNS otomatik geri alınır. (macOS'ta takılırsa
+  `sudo ./bin/serbestdpi tun-restore`.)
+
+**Otomatik servis (macOS) — uyku/yeniden başlatmaya dayanır:** TUN'u her açılışta otomatik
+başlatmak ve uyandıktan sonra kendini toparlamak için bir LaunchDaemon kur:
+
+```bash
+# best.json (autotest çıktısı) ile; yoksa generic profile düşer
+sudo BIN=$PWD/bin/serbestdpi CFG=$HOME/.serbestdpi/best.json bash scripts/install-daemon-macos.sh
+# kaldırmak için:
+sudo bash scripts/uninstall-daemon-macos.sh
+```
+
 ### Otomatik strateji testi
 
 Hangi profilin senin ağında çalıştığını elle denemek yerine otomatik buldur:

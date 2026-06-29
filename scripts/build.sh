@@ -26,7 +26,15 @@ build windows arm64 .exe      # ARM tabanlı Windows (Surface Pro X, Snapdragon)
 build windows 386   .exe      # 32-bit Windows (eski sistemler)
 
 echo
-echo "GUI (yalnızca bu makine için, cgo gerekir):"
+echo "Windows GUI (menü çubuğu uygulaması — systray Windows'ta cgo gerektirmez):"
+for a in amd64 arm64; do
+  echo "  windows/$a..."
+  GOOS=windows GOARCH=$a CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -H windowsgui" \
+    -o "dist/serbestdpi-gui-windows-$a.exe" ./cmd/serbestdpi-gui
+done
+
+echo
+echo "Yerel GUI (bu makine için, macOS/Linux cgo gerekir):"
 CGO_ENABLED=1 go build -trimpath -ldflags="-s -w" -o "dist/serbestdpi-gui" ./cmd/serbestdpi-gui && echo "  bin: dist/serbestdpi-gui"
 
 echo

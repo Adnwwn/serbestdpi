@@ -21,9 +21,11 @@ import (
 	"serbestdpi/internal/fakepkt"
 	"serbestdpi/internal/profiles"
 	"serbestdpi/internal/proxy"
+	"serbestdpi/internal/tun"
+	"serbestdpi/internal/tunrun"
 )
 
-const version = "0.2.0"
+const version = "0.3.0"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -33,6 +35,10 @@ func main() {
 	switch os.Args[1] {
 	case "run":
 		runCmd(os.Args[2:])
+	case "tun", "vpn":
+		tunCmd(os.Args[2:])
+	case "tun-restore", "tun-cleanup":
+		tunRestoreCmd()
 	case "autotest", "test":
 		autotestCmd(os.Args[2:])
 	case "fake-probe":
@@ -59,13 +65,7 @@ func runCmd(args []string) {
 	verbose := fs.Bool("v", false, "ayrıntılı log")
 	_ = fs.Parse(args)
 
-	var p config.Profile
-	var err error
-	if *configPath != "" {
-		p, err = profiles.LoadFile(*configPath)
-	} else {
-		p, err = profiles.Load(*profileName)
-	}
+	p, err := loadProfile(*configPath, *profileName)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		fmt.Fprintln(os.Stderr, "Mevcut profiller için: serbestdpi list-profiles")
@@ -96,6 +96,78 @@ func runCmd(args []string) {
 		fmt.Fprintln(os.Stderr, "hata:", err)
 		os.Exit(1)
 	}
+}
+
+func tunCmd(args []string) {
+	fs := flag.NewFlagSet("tun", flag.ExitOnError)
+	profileName := fs.String("profile", "generic", "ISP profili (bkz. list-profiles)")
+	configPath := fs.String("config", "", "profil dosyası yolu (autotest best.json) — --profile'ı geçersiz kılar")
+	dohURL := fs.String("doh", "", "DoH sunucusu (boşsa profilinki)")
+	ifaceName := fs.String("iface", "", "fiziksel çıkış arabirimi (boşsa otomatik tespit, ör. en0)")
+	stopFile := fs.String("stop-file", "", "bu dosya oluşunca tünel kapanır (arka plandan durdurmak için)")
+	verbose := fs.Bool("v", false, "ayrıntılı log")
+	_ = fs.Parse(args)
+
+	if !tun.Supported() {
+		fmt.Fprintln(os.Stderr, "TUN modu bu platform/mimaride desteklenmiyor (yalnızca macOS/Linux, amd64/arm64).")
+		fmt.Fprintln(os.Stderr, "Bunun yerine 'serbestdpi run' ile SOCKS5 proxy modunu kullanın.")
+		os.Exit(1)
+	}
+	if os.Geteuid() != 0 {
+		fmt.Fprintln(os.Stderr, "TUN modu yönetici (root) yetkisi gerektirir. Şöyle çalıştırın:")
+		fmt.Fprintf(os.Stderr, "  sudo %s tun --profile %s\n", os.Args[0], *profileName)
+		os.Exit(1)
+	}
+
+	p, err := loadProfile(*configPath, *profileName)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		fmt.Fprintln(os.Stderr, "Mevcut profiller için: serbestdpi list-profiles")
+		os.Exit(1)
+	}
+	doh := p.DoH
+	if *dohURL != "" {
+		doh = *dohURL
+	}
+	iface := *ifaceName
+	if iface == "" {
+		if iface, err = tun.DefaultInterface(); err != nil {
+			fmt.Fprintln(os.Stderr, "fiziksel arabirim tespit edilemedi:", err, "— --iface en0 gibi elle belirtin")
+			os.Exit(1)
+		}
+	}
+
+	fmt.Printf("SerbestDPI %s — TUN (VPN) modu\n", version)
+	fmt.Printf("  Profil    : %s — %s\n", p.Name, p.Label)
+	fmt.Printf("  Strateji  : %s\n", p.Strategy.Type)
+	fmt.Printf("  DoH       : %s\n", doh)
+	fmt.Printf("  Arabirim  : %s (fiziksel çıkış) → %s (sanal)\n\n", iface, tun.DefaultDevice())
+	fmt.Println("Tüm uygulamaların trafiği yakalanıyor (proxy ayarına gerek yok). Durdurmak için Ctrl+C.")
+
+	if err := tunrun.Run(tunrun.Options{Profile: p, DoH: doh, Iface: iface, StopFile: *stopFile, Verbose: *verbose}); err != nil {
+		fmt.Fprintln(os.Stderr, "hata:", err)
+		os.Exit(1)
+	}
+	fmt.Println("\nKapatıldı, rotalar geri alındı.")
+}
+
+// tunRestoreCmd, TUN modundan kalmış split-default rotaları temizler (acil kurtarma).
+func tunRestoreCmd() {
+	if os.Geteuid() != 0 {
+		fmt.Fprintln(os.Stderr, "Bu komut yönetici yetkisi gerektirir:")
+		fmt.Fprintf(os.Stderr, "  sudo %s tun-restore\n", os.Args[0])
+		os.Exit(1)
+	}
+	tun.Cleanup()
+	fmt.Println("TUN rotaları temizlendi (varsa). İnternet normal çıkışa döndü.")
+}
+
+// loadProfile, --config veya --profile'a göre profili yükler.
+func loadProfile(configPath, profileName string) (config.Profile, error) {
+	if configPath != "" {
+		return profiles.LoadFile(configPath)
+	}
+	return profiles.Load(profileName)
 }
 
 func autotestCmd(args []string) {
@@ -251,16 +323,23 @@ func usage() {
 
 Kullanım:
   serbestdpi run [--profile ad | --config dosya] [--listen 127.0.0.1:1080] [--doh url] [-v]
+  serbestdpi tun [--profile ad | --config dosya] [--iface en0] [--doh url] [-v]   (root gerekir)
+  serbestdpi tun-restore                                  (TUN takılırsa rotaları temizle, root)
   serbestdpi autotest [--targets a.com,b.com] [--doh url] [--timeout 8s]
   serbestdpi fake-probe --dst IP [--ttl 3] [--port 443]   (root gerekir)
   serbestdpi list-profiles
   serbestdpi version
 
+run, yerel bir SOCKS5/HTTP proxy açar; yalnızca proxy'yi DİNLEYEN uygulamalar
+(tarayıcılar) yararlanır.
+tun, sanal bir VPN arabirimi açıp TÜM uygulamaların trafiğini yakalar (Discord,
+Spotify, oyunlar dahil sistem proxy'sini yok sayan uygulamalar da çalışır).
+Yalnızca macOS/Linux (amd64/arm64) ve root gerekir.
 autotest, ağında en iyi stratejiyi otomatik bulup ~/.serbestdpi/best.json'a yazar;
 ardından "serbestdpi run --config ~/.serbestdpi/best.json" ile kullanırsın.
 fake-probe, raw-socket fake-packet motorunu sınar (kernel-mode geliştirme/tanı).
 
-Tarayıcıda/uygulamada SOCKS5 proxy olarak 127.0.0.1:1080 ayarlayın
-veya: curl -x socks5h://127.0.0.1:1080 https://engelli-site.example
+Proxy modu testi: curl -x socks5h://127.0.0.1:1080 https://engelli-site.example
+TUN modu (tüm uygulamalar): sudo serbestdpi tun --profile turktelekom
 `)
 }

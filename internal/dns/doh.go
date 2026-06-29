@@ -5,12 +5,14 @@
 package dns
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 )
@@ -42,14 +44,51 @@ type Resolver struct {
 // NewResolver, verilen DoH endpoint'i için bir çözümleyici döndürür.
 // endpoint boşsa Cloudflare (https://1.1.1.1/dns-query) kullanılır.
 func NewResolver(endpoint string) *Resolver {
+	return NewResolverWithClient(endpoint, &http.Client{Timeout: 8 * time.Second})
+}
+
+// NewResolverWithClient, özel bir HTTP istemcisiyle çözümleyici üretir. TUN
+// modunda istemcinin çıkış soketi fiziksel arabirime bağlanmalıdır (yoksa DoH
+// isteği sanal arabirime geri döner) — bu nedenle dışarıdan client verilebilir.
+func NewResolverWithClient(endpoint string, client *http.Client) *Resolver {
 	if endpoint == "" {
 		endpoint = "https://1.1.1.1/dns-query"
 	}
+	if client == nil {
+		client = &http.Client{Timeout: 8 * time.Second}
+	}
 	return &Resolver{
 		endpoint: endpoint,
-		client:   &http.Client{Timeout: 8 * time.Second},
+		client:   client,
 		cache:    make(map[string]cacheEntry),
 	}
+}
+
+// QueryWire, ham (RFC 8484 wireformat) bir DNS sorgusunu DoH üzerinden iletip
+// ham DNS yanıtını döndürür. TUN modunda uygulamaların UDP:53 sorgularını
+// olduğu gibi DoH'a aktarmak için kullanılır; böylece DNS tampering aşılır.
+func (r *Resolver) QueryWire(query []byte) ([]byte, error) {
+	// JSON endpoint'i (?name=...) ile karışmaması için sorgu parametrelerini at.
+	endpoint := r.endpoint
+	if i := strings.IndexByte(endpoint, '?'); i >= 0 {
+		endpoint = endpoint[:i]
+	}
+	req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(query))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/dns-message")
+	req.Header.Set("Accept", "application/dns-message")
+
+	resp, err := r.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("DoH sunucusu HTTP %d döndü", resp.StatusCode)
+	}
+	return io.ReadAll(io.LimitReader(resp.Body, 64*1024))
 }
 
 // Endpoint, kullanılan DoH sunucusunu döndürür.

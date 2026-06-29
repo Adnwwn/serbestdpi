@@ -5,6 +5,7 @@ package main
 
 import (
 	"log"
+	"os"
 	"sync"
 
 	"github.com/getlantern/systray"
@@ -21,16 +22,23 @@ var (
 	mu             sync.Mutex
 	srv            *proxy.Server
 	currentProfile = "generic"
+	tunRunning     bool
 
 	mStatus    *systray.MenuItem
 	mStartStop *systray.MenuItem
 	mSysProxy  *systray.MenuItem
+	mTun       *systray.MenuItem
 
 	profileItems []*systray.MenuItem
 	profileNames []string
 )
 
 func main() {
+	// Gizli ayrıcalıklı mod: GUI kendini bununla root olarak yeniden başlatır.
+	if len(os.Args) > 1 && os.Args[1] == "--tun-worker" {
+		runTunWorker(os.Args[2:])
+		return
+	}
 	systray.Run(onReady, onExit)
 }
 
@@ -44,6 +52,7 @@ func onReady() {
 
 	mStartStop = systray.AddMenuItem("Başlat", "Proxy'yi başlat/durdur")
 	mSysProxy = systray.AddMenuItemCheckbox("Sistem proxy'sini yönlendir", "Tüm sistemi bu proxy'ye yönlendir", false)
+	mTun = systray.AddMenuItemCheckbox("TUN modu — TÜM uygulamalar (yönetici)", "Discord/oyunlar dahil tüm uygulamaların trafiğini yakala (şifre ister)", false)
 	systray.AddSeparator()
 
 	// Profil alt menüsü.
@@ -74,6 +83,8 @@ func onReady() {
 				toggleProxy()
 			case <-mSysProxy.ClickedCh:
 				toggleSysProxy()
+			case <-mTun.ClickedCh:
+				toggleTun()
 			case <-mQuit.ClickedCh:
 				systray.Quit()
 				return
@@ -87,6 +98,50 @@ func onExit() {
 	if mSysProxy != nil && mSysProxy.Checked() {
 		_ = sysproxy.Disable()
 	}
+	mu.Lock()
+	running := tunRunning
+	mu.Unlock()
+	if running {
+		stopTun() // ayrıcalıklı worker rotaları geri alıp kapanır
+	}
+}
+
+// toggleTun, TUN (VPN) modunu açar/kapatır. Açarken port çakışmasını önlemek
+// için GUI içi proxy'yi ve sistem proxy'sini kapatır.
+func toggleTun() {
+	mu.Lock()
+	running := tunRunning
+	mu.Unlock()
+
+	if running {
+		stopTun()
+		mu.Lock()
+		tunRunning = false
+		mu.Unlock()
+		mTun.Uncheck()
+		mStatus.SetTitle("Durum: durduruldu")
+		return
+	}
+
+	// TUN, kendi yerel proxy'sini 127.0.0.1:1080'de çalıştırır; GUI içi proxy
+	// aynı portta olursa çakışır. Bu yüzden önce onu (ve sistem proxy'sini) kapat.
+	stopProxy()
+	mStartStop.SetTitle("Başlat")
+	if mSysProxy.Checked() {
+		_ = sysproxy.Disable()
+		mSysProxy.Uncheck()
+	}
+
+	if err := startTun(currentProfile); err != nil {
+		log.Println("TUN başlatılamadı:", err)
+		mStatus.SetTitle("Durum: TUN açılamadı (şifre iptal?)")
+		return
+	}
+	mu.Lock()
+	tunRunning = true
+	mu.Unlock()
+	mTun.Check()
+	mStatus.SetTitle("Durum: TUN açık — tüm uygulamalar (" + currentProfile + ")")
 }
 
 func toggleProxy() {
@@ -149,7 +204,22 @@ func selectProfile(idx int) {
 	}
 	currentProfile = profileNames[idx]
 
-	// Çalışıyorsa yeni profile geçmek için yeniden başlat.
+	// TUN açıksa profil değişikliği ancak yeniden başlatınca etkili olur (ve bu
+	// tekrar şifre ister); kullanıcıyı şaşırtmamak için TUN'u kapat.
+	mu.Lock()
+	tunOn := tunRunning
+	mu.Unlock()
+	if tunOn {
+		stopTun()
+		mu.Lock()
+		tunRunning = false
+		mu.Unlock()
+		mTun.Uncheck()
+		mStatus.SetTitle("Durum: profil değişti — TUN'u tekrar açın")
+		return
+	}
+
+	// Proxy çalışıyorsa yeni profile geçmek için yeniden başlat.
 	mu.Lock()
 	running := srv != nil
 	mu.Unlock()

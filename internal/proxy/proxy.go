@@ -25,10 +25,22 @@ type Server struct {
 	Profile  config.Profile
 	Resolver *dns.Resolver
 	Verbose  bool
+	// Dialer, hedefe açılan çıkış (outbound) bağlantıları için kullanılır. TUN
+	// modunda fiziksel arabirime bağlı bir dialer verilir (yoksa proxy'nin kendi
+	// trafiği sanal arabirime geri döner ve döngü oluşur). nil ise varsayılan.
+	Dialer *net.Dialer
 
 	mu      sync.Mutex
 	ln      net.Listener
 	stopped bool
+}
+
+// dialer, yapılandırılmış çıkış dialer'ını veya varsayılanı döndürür.
+func (s *Server) dialer() *net.Dialer {
+	if s.Dialer != nil {
+		return s.Dialer
+	}
+	return &net.Dialer{Timeout: 10 * time.Second}
 }
 
 // listen, dinleyiciyi senkron olarak açar (port hatasını hemen döndürür).
@@ -151,9 +163,10 @@ func (s *Server) socks5(client net.Conn, br *bufio.Reader) (string, int, error) 
 	if _, err := io.ReadFull(br, hdr); err != nil {
 		return "", 0, err
 	}
-	if hdr[1] != 0x01 { // yalnızca CONNECT
+	cmd := hdr[1]
+	if cmd != 0x01 && cmd != 0x03 { // CONNECT veya UDP ASSOCIATE
 		client.Write([]byte{0x05, 0x07, 0x00, 0x01, 0, 0, 0, 0, 0, 0})
-		return "", 0, errors.New("yalnızca CONNECT destekleniyor")
+		return "", 0, errors.New("desteklenmeyen SOCKS komutu")
 	}
 
 	var host string
@@ -191,7 +204,14 @@ func (s *Server) socks5(client net.Conn, br *bufio.Reader) (string, int, error) 
 	}
 	port := int(pb[0])<<8 | int(pb[1])
 
-	// Başarı yanıtı (bağlanılan adresi sahte 0.0.0.0:0 veriyoruz; istemciler aldırmaz).
+	if cmd == 0x03 {
+		// UDP ASSOCIATE: yukarıdaki DST.ADDR/PORT istemcinin datagram göndereceği
+		// adrestir (genelde 0.0.0.0:0) ve yok sayılır. udpAssociate kendi yanıtını
+		// yazar ve TCP bağlantısı kapanana dek rölelemeyi sürdürür (bloke eder).
+		return "", 0, s.udpAssociate(client, br)
+	}
+
+	// CONNECT başarı yanıtı (bağlanılan adresi sahte 0.0.0.0:0 veriyoruz; istemciler aldırmaz).
 	if _, err := client.Write([]byte{0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0}); err != nil {
 		return "", 0, err
 	}
@@ -278,9 +298,10 @@ func (s *Server) dial(host string, port int) (net.Conn, error) {
 		return nil, err
 	}
 	var lastErr error
+	d := s.dialer()
 	for _, ip := range ips {
 		addr := net.JoinHostPort(ip.String(), strconv.Itoa(port))
-		c, err := net.DialTimeout("tcp", addr, 10*time.Second)
+		c, err := d.Dial("tcp", addr)
 		if err == nil {
 			if tcp, ok := c.(*net.TCPConn); ok {
 				tcp.SetNoDelay(true)
